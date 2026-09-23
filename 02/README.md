@@ -4,7 +4,7 @@
 
 Создан манифест Pod `hello-world` с образом `gcr.io/kubernetes-e2e-test-images/echoserver:2.2`.
 
-[Манифест hello-world](./02/01-hello-world.yaml)
+[Манифест hello-world](/01-hello-world.yaml)
 
 Проверка состояния Pod:
 
@@ -12,7 +12,7 @@
 kubectl get pods
 ```
 
-![task1-pods](./02/img/task1-pods.png)
+![task1-pods](./img/task1-pods.png)
 
 Для подключения к Pod выполнен проброс порта:
 
@@ -26,7 +26,7 @@ kubectl port-forward pod/hello-world 8080:8080
 curl http://localhost:8080
 ```
 
-![task1-curl](./02/img/task1-curl.png)
+![task1-curl](./img/task1-curl.png)
 
 ---
 
@@ -34,11 +34,11 @@ curl http://localhost:8080
 
 Создан Pod `netology-web` с образом `gcr.io/kubernetes-e2e-test-images/echoserver:2.2`.
 
-[Манифест netology-web](./02/02-netology-web.yaml)
+[Манифест netology-web](./02-netology-web.yaml)
 
 Для доступа к Pod создан Service `netology-svc`.
 
-[Манифест netology-svc](./02/02-netology-svc.yaml)
+[Манифест netology-svc](./02-netology-svc.yaml)
 
 Проверка Pod и Service:
 
@@ -47,7 +47,7 @@ kubectl get pods
 kubectl get svc
 ```
 
-![task2-podsvc](./02/img/task2-podsvc.png)
+![task2-podsvc](./img/task2-podsvc.png)
 
 Для локального подключения к Service выполнен проброс порта:
 
@@ -61,4 +61,4 @@ kubectl port-forward service/netology-svc 8080:80
 curl http://localhost:8080
 ```
 
-![task2-curl](./02/img/task2-curl.png)
+![task2-curl](./img/task2-curl.png)
