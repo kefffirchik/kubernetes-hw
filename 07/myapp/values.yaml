@@ -1,0 +1,15 @@
+frontend:
+  replicaCount: 1
+  image:
+    repository: nginx
+    tag: "1.27-alpine"
+  service:
+    port: 80
+
+backend:
+  replicaCount: 1
+  image:
+    repository: hashicorp/http-echo
+    tag: "1.0.0"
+  service:
+    port: 5678
