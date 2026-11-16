@@ -21,31 +21,37 @@ microk8s kubectl create namespace data
 microk8s kubectl apply -f task.yaml
 ```
 
+В результате созданы следующие ресурсы:
+
+- Deployment `web-consumer` в namespace `web` - 2 реплики.
+- Deployment `auth-db` в namespace `data` - 1 реплика.
+- Service `auth-db` в namespace `data` - ClusterIP, порт 80.
+
 ### 2. Выявленные неисправности
 
 **Проблема № 1. Ошибка загрузки Docker-образа**
 
-После развёртывания Pod приложения `web-consumer` находились в состоянии `ErrImagePull` и `ImagePullBackOff`.
+После применения исходного манифеста оба Pod приложения `web-consumer` находились в состоянии `ErrImagePull`, а затем `ImagePullBackOff`.
 
-Диагностика выполнена командой:
+Для диагностики использовалась команда:
 
 ```bash
-microk8s kubectl describe pod -n web <pod-name>
+microk8s kubectl get events -n web --sort-by=.lastTimestamp
 ```
 
-В событиях обнаружена ошибка:
+В событиях Kubernetes обнаружено сообщение:
 
 ```text
-schema 1 image manifests are no longer supported: invalid argument
+Failed to pull image "radial/busyboxplus:curl": rpc error: code = InvalidArgument desc = failed to pull and unpack image "docker.io/radial/busyboxplus:curl": schema 1 image manifests are no longer supported: invalid argument
 ```
 
-Причина: исходный образ `radial/busyboxplus:curl` использует устаревший формат Docker Image Manifest Schema 1, который не поддерживается используемой версией containerd.
+Причина неисправности - Docker-образ `radial/busyboxplus:curl` использует устаревший формат манифеста Schema 1, который больше не поддерживается используемой версией containerd.
 
-![Ошибка загрузки образа](img/image-pull-error.png)
+![Ошибка загрузки Docker-образа](img/image-pull-error.png)
 
 **Проблема № 2. Ошибка разрешения DNS-имени**
 
-После устранения первой неисправности контейнеры `web-consumer` успешно запустились, однако подключение к `auth-db` по-прежнему отсутствовало.
+После замены устаревшего образа контейнеры `web-consumer` успешно запустились, однако подключение к `auth-db` по-прежнему отсутствовало.
 
 Для диагностики использовалась команда:
 
@@ -59,15 +65,17 @@ microk8s kubectl logs -n web deployment/web-consumer --tail=20
 curl: (6) Could not resolve host: auth-db
 ```
 
-Причина: приложение `web-consumer` находится в namespace `web`, а Service `auth-db` - в namespace `data`. При обращении к Service из другого namespace необходимо указывать его DNS-имя с namespace.
+Причина: приложение `web-consumer` находится в namespace `web`, а Service `auth-db` - в namespace `data`.
 
-![Ошибка DNS](img/dns-error.png)
+При обращении к Service из другого namespace необходимо указывать DNS-имя с namespace, например `auth-db.data.svc.cluster.local`.
+
+![Ошибка разрешения DNS-имени](img/dns-error.png)
 
 ### 3. Устранение неисправностей
 
 **Исправление № 1. Замена Docker-образа**
 
-Устаревший образ:
+В манифесте `task.yaml` устаревший образ:
 
 ```yaml
 image: radial/busyboxplus:curl
@@ -79,9 +87,11 @@ image: radial/busyboxplus:curl
 image: curlimages/curl:8.12.1
 ```
 
+После применения изменений контейнеры `web-consumer` успешно запустились.
+
 **Исправление № 2. Корректировка DNS-имени**
 
-Исходная команда:
+Исходная команда контейнера:
 
 ```yaml
 - while true; do curl auth-db; sleep 5; done
@@ -90,8 +100,12 @@ image: curlimages/curl:8.12.1
 заменена на:
 
 ```yaml
-- while true; do curl -sS auth-db.data.svc.cluster.local; sleep 5; done
+- while true; do curl auth-db.data.svc.cluster.local; sleep 5; done
 ```
+
+В исходном манифесте приложение `web-consumer` обращалось к Service `auth-db` по короткому имени, хотя сервис расположен в другом namespace.
+
+Для устранения ошибки DNS-имя изменено на `auth-db.data.svc.cluster.local`, что позволяет обращаться к Service в namespace `data`.
 
 Исправленный манифест: [task.yaml](task.yaml).
 
@@ -103,23 +117,23 @@ microk8s kubectl apply -f task.yaml
 
 ### 4. Проверка работоспособности
 
-После применения исправлений проверено состояние ресурсов:
+После применения исправлений проверено состояние ресурсов Kubernetes:
 
 ```bash
 microk8s kubectl get deployments,pods -n web
 microk8s kubectl get deployments,pods,svc -n data
 ```
 
-Результат:
+Результат проверки:
 
-- `web-consumer` - 2/2 Ready.
-- `auth-db` - 1/1 Ready.
-- Все Pod находятся в состоянии `Running`.
-- Service `auth-db` доступен на порту 80.
+- Deployment `web-consumer` - 2/2 Ready.
+- Deployment `auth-db` - 1/1 Ready.
+- Все три Pod находятся в состоянии `Running`.
+- Service `auth-db` имеет тип ClusterIP и доступен на порту 80.
 
-![Состояние ресурсов](img/pods-running.png)
+![Состояние ресурсов Kubernetes](img/pods-running.png)
 
-Для проверки подключения выполнен HTTP-запрос из контейнера `web-consumer`:
+Для проверки подключения выполнен HTTP-запрос непосредственно из контейнера `web-consumer`:
 
 ```bash
 microk8s kubectl exec -n web deployment/web-consumer -- \
@@ -133,15 +147,31 @@ microk8s kubectl exec -n web deployment/web-consumer -- \
 HTTP 200
 ```
 
-Также в логах `web-consumer` получена стандартная HTML-страница nginx с заголовком `Welcome to nginx!`.
+Полученный ответ подтверждает успешное подключение приложения `web-consumer` к Service `auth-db`.
 
-![Успешное подключение](img/connection-success.png)
+![Успешное HTTP-подключение](img/connection-success.png)
+
+Дополнительно проверены логи приложения:
+
+```bash
+microk8s kubectl logs -n web deployment/web-consumer --tail=30
+```
+
+В логах получена стандартная HTML-страница nginx с заголовком:
+
+```html
+<h1>Welcome to nginx!</h1>
+```
+
+Это подтверждает, что приложение `web-consumer` успешно получает HTTP-ответ от `auth-db`.
 
 ### 5. Вывод
 
 В ходе выполнения задания выявлены и устранены две неисправности:
 
-1. Несовместимость устаревшего Docker-образа с используемой версией containerd.
-2. Некорректное DNS-имя Service при обращении между разными пространствами имён Kubernetes.
+1. **Несовместимость Docker-образа:** устаревший образ `radial/busyboxplus:curl` использовал неподдерживаемый формат манифеста Schema 1. Проблема устранена заменой образа на `curlimages/curl:8.12.1`.
+2. **Ошибка DNS:** приложение `web-consumer` обращалось к Service `auth-db` по короткому имени, несмотря на размещение ресурсов в разных namespaces. Проблема устранена использованием DNS-имени `auth-db.data.svc.cluster.local`.
 
-После внесения исправлений приложение `web-consumer` успешно подключается к `auth-db`. Работоспособность подтверждена состоянием ресурсов Kubernetes и HTTP-ответом `200 OK`.
+После внесения исправлений все компоненты приложения находятся в состоянии `Running`, а подключение `web-consumer` к `auth-db` успешно выполняется.
+
+**Работоспособность подтверждена HTTP-ответом `200 OK`.**
